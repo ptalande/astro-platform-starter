@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Realistic 3D AI Avatar</title>
+  <style>
+    body { margin: 0; overflow: hidden; }
+    #avatarCanvas { width: 100vw; height: 100vh; display: block; }
+    #talkBtn {
+      position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%);
+      padding: .5em 1em; font-size: 1.2em;
+    }
+  </style>
+</head>
+<body>
+  <canvas id="avatarCanvas"></canvas>
+  <button id="talkBtn">Talk to Avatar</button>
+
+  <!-- 1) Ready Player Me WebGL runtime -->
+  <script src="https://unpkg.com/@readyplayerme/visor@1.0.2/dist/visor.iife.js"></script>
+  <script>
+    (async () => {
+      const APP = new ReadyPlayerMe.Visor({ canvas: document.getElementById('avatarCanvas') });
+      // 2) Load your avatar (replace with your model URL!)
+      const avatar = await APP.loadAvatar('https://models.readyplayer.me/your‑avatar‑id.glb');
+
+      // 3) Prepare SpeechRecognition & SpeechSynthesis
+      const recog = new (window.SpeechRecognition || window.webkitSpeechRecognition)();
+      recog.lang = 'en-US';
+      const btn = document.getElementById('talkBtn');
+
+      btn.onclick = () => {
+        btn.disabled = true;
+        recog.start();
+      };
+
+      recog.onresult = async (e) => {
+        const userText = e.results[0][0].transcript;
+        // → send userText to Gemini Pro (or any free LLM endpoint)
+        const gRes = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta2/models/text-bison-001:generateText?key=YOUR_GEMINI_KEY`,
+          {
+            method:'POST',
+            headers:{'Content-Type':'application/json'},
+            body: JSON.stringify({
+              prompt:{text:userText},
+              temperature:0.7,
+              maxOutputTokens:256
+            })
+          }
+        ).then(r=>r.json());
+        const reply = gRes.candidates[0].output;
+
+        // 4) Create utterance & map mouth movement
+        const utter = new SpeechSynthesisUtterance(reply);
+        utter.lang = 'en-US';
+        // Assume your avatar GLTF has a morphTarget named "Jaw_Open"
+        const jaw = avatar.scene.getObjectByName('Jaw_Open');
+
+        utter.onboundary = () => {
+          // flip jaw open/close on each word
+          if (jaw) jaw.morphTargetInfluences[0] = jaw.morphTargetInfluences[0] ? 0 : 1;
+        };
+        utter.onend = () => {
+          if (jaw) jaw.morphTargetInfluences[0] = 0;
+          btn.disabled = false;
+        };
+        speechSynthesis.speak(utter);
+      };
+
+      recog.onerror = () => { btn.disabled = false; };
+    })();
+  </script>
+</body>
+</html>
